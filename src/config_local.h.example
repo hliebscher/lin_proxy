@@ -1,0 +1,30 @@
+#ifndef CONFIG_LOCAL_H
+#define CONFIG_LOCAL_H
+
+// ============================================================================
+// LOKALE KONFIGURATION - NICHT INS GIT COMMITTEN!
+// ============================================================================
+// Diese Datei als "config_local.h" (ohne .example) kopieren und anpassen
+// Die config_local.h wird automatisch von config.h inkludiert
+
+// Netzwerk-Modus: 0=WiFi, 1=Ethernet
+#define USE_ETHERNET 0
+
+// WiFi Station Konfiguration (Hauptverbindung)
+#define WIFI_SSID       "MeinWLAN"          // <-- ANPASSEN
+#define WIFI_PASSWORD   "MeinPasswort"      // <-- ANPASSEN
+
+// WiFi Access Point Konfiguration (Fallback bei fehlendem WLAN)
+#define AP_SSID         "LIN-Proxy-AP"
+#define AP_PASSWORD     "linproxy123"       // Min. 8 Zeichen
+#define AP_CHANNEL      6
+#define AP_MAX_CONN     4
+
+// Logging - Syslog Server (optional)
+#define SYSLOG_SERVER   "192.168.1.100"     // <-- ANPASSEN oder deaktivieren
+#define SYSLOG_PORT     514
+
+// OTA Update Server (optional für Auto-Update)
+#define FW_UPDATE_URL   "http://192.168.1.100:8080/firmware.bin"  // <-- ANPASSEN
+
+#endif // CONFIG_LOCAL_H

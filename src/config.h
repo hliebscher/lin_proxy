@@ -1,18 +1,39 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Netzwerk-Modus: 0=WiFi, 1=Ethernet
-#define USE_ETHERNET 0
+// ============================================================================
+// HAUPT-KONFIGURATION
+// ============================================================================
+// Lokale Einstellungen (SSID, Passwort, etc.) in config_local.h anpassen!
+// 
+// SETUP:
+// 1. Kopiere src/config_local.h.example zu src/config_local.h
+// 2. Passe Netzwerk-Einstellungen in config_local.h an
+// 3. config_local.h wird NICHT ins Git committet (siehe .gitignore)
 
-// WiFi Station Konfiguration
-#define WIFI_SSID       "MeinWLAN"
-#define WIFI_PASSWORD   "MeinPasswort"
+// Inkludiere lokale Einstellungen (WiFi, Syslog, etc.)
+#ifdef __has_include
+#  if __has_include("config_local.h")
+#    include "config_local.h"
+#    define HAS_LOCAL_CONFIG 1
+#  endif
+#endif
 
-// WiFi Access Point Konfiguration (Fallback wenn Station fehlschlägt)
-#define AP_SSID         "LIN-Proxy-AP"
-#define AP_PASSWORD     "linproxy123"
-#define AP_CHANNEL      6
-#define AP_MAX_CONN     4
+// Fallback-Werte wenn config_local.h fehlt
+#ifndef HAS_LOCAL_CONFIG
+    #warning "config_local.h nicht gefunden! Nutze Default-Werte. Kopiere config_local.h.example zu config_local.h"
+    
+    #define USE_ETHERNET 0
+    #define WIFI_SSID       "MeinWLAN"
+    #define WIFI_PASSWORD   "MeinPasswort"
+    #define AP_SSID         "LIN-Proxy-AP"
+    #define AP_PASSWORD     "linproxy123"
+    #define AP_CHANNEL      6
+    #define AP_MAX_CONN     4
+    #define SYSLOG_SERVER   "192.168.1.100"
+    #define SYSLOG_PORT     514
+    #define FW_UPDATE_URL   "http://192.168.1.100:8080/firmware.bin"
+#endif
 
 // Ethernet PHY Konfiguration (KSZ8081RNA)
 #define ETH_PHY_ADDR    0
@@ -23,15 +44,12 @@
 // Logging Konfiguration
 #define LOG_TO_CONSOLE  1    // 1=ESP_LOG aktiviert
 #define LOG_TO_UDP      1    // 1=UDP Syslog aktiviert
-#define SYSLOG_SERVER   "192.168.1.100"
-#define SYSLOG_PORT     514
 
 // LIN Frame Logging
 #define LOG_LIN_FRAMES  1    // 1=Alle LIN-Frames loggen
 
 // Firmware Version
 #define FW_VERSION      "1.0.0"
-#define FW_UPDATE_URL   "http://192.168.1.100:8080/firmware.bin"  // URL für Auto-Update
 
 // OTA Update Konfiguration
 #define OTA_ENABLED     1    // 1=OTA über HTTP aktiviert
@@ -43,3 +61,4 @@
 #define WEB_SERVER_PORT     80  // HTTP-Port für Web-Interface
 
 #endif // CONFIG_H
+

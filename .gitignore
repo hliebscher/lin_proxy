@@ -4,6 +4,9 @@ sdkconfig
 sdkconfig.old
 sdkconfig.defaults
 
+# Lokale Konfiguration (sensible Daten nicht committen!)
+src/config_local.h
+
 # Python
 *.pyc
 __pycache__/
