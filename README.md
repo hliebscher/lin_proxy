@@ -13,6 +13,15 @@ Bidirektionaler LIN-Bus-Proxy mit Netzwerk-Logging (WiFi/Ethernet) für ESP32 WR
   - **Ethernet** via KSZ8081RNA PHY (25 MHz Clock)
   - **UDP Syslog** für Remote-Log-Server
   - Logging aller LIN-Frames von beiden Ports (LIN1→LIN2 und LIN2→LIN1)
+- **OTA Firmware-Updates**: 
+  - **Web-Interface** für Firmware-Upload über Browser
+  - **Auto-Update** mit Versions-Check (konfigurierbar)
+  - **HTTP OTA** für Remote-Updates
+- **Web-Interface**: 
+  - System-Info und Status-Monitoring
+  - Firmware-Upload direkt im Browser
+  - Remote-Reboot
+  - Zugriff über WiFi/Ethernet IP
 - **ESP-IDF 4.4.5** & **PlatformIO** kompatibel
 
 ## Hardware
@@ -65,6 +74,19 @@ Alle Einstellungen in [src/config.h](src/config.h):
 #define LOG_LIN_FRAMES  1    // Alle LIN-Frames loggen
 ```
 
+### OTA & Web-Interface
+```c
+#define FW_VERSION      "1.0.0"
+#define FW_UPDATE_URL   "http://192.168.1.100:8080/firmware.bin"
+
+#define OTA_ENABLED     1    // OTA über HTTP aktiviert
+#define AUTO_UPDATE     1    // Automatischer Versions-Check
+#define UPDATE_INTERVAL 3600 // Auto-Update alle 3600 Sekunden (1 Stunde)
+
+#define WEB_SERVER_ENABLED  1   // HTTP-Server für Web-Interface
+#define WEB_SERVER_PORT     80  // Web-Interface Port
+```
+
 **Log-Format**: `[LIN1→LIN2] ID=0x3C Data=12 34 56 78 AB`
 
 ## Build & Flash
@@ -97,9 +119,37 @@ idf.py -p /dev/ttyUSB0 flash monitor
    - Access-Point-Name (Fallback)
    - Syslog-Server IP für Remote-Logging
    - Netzwerk-Modus (WiFi/Ethernet)
+   - Firmware-Version und Update-URL
 2. **Build & Flash**: `pio run -t upload -t monitor`
 3. **WiFi-Verbindung**: ESP32 versucht zuerst Station-Verbindung, startet bei Fehler AP-Modus
-4. **Log-Monitoring**: LIN-Frames erscheinen im Serial Monitor und auf Syslog-Server
+4. **Web-Interface öffnen**: 
+   - Verbinde mit WiFi (Station oder AP)
+   - Öffne Browser: `http://<ESP32-IP>` (IP erscheint im Serial Monitor)
+   - Funktionen: Firmware-Upload, System-Info, Reboot
+5. **Log-Monitoring**: LIN-Frames erscheinen im Serial Monitor und auf Syslog-Server
+
+### OTA Firmware-Update
+
+**Variante 1: Web-Interface (empfohlen)**
+1. Öffne `http://<ESP32-IP>` im Browser
+2. Klicke "Choose File" und wähle `.pio/build/esp32dev/firmware.bin`
+3. Klicke "Upload Firmware"
+4. ESP32 bootet automatisch mit neuer Firmware
+
+**Variante 2: Automatisches Update**
+1. Aktiviere in [src/config.h](src/config.h): `#define AUTO_UPDATE 1`
+2. Setze `FW_UPDATE_URL` auf HTTP-Server mit `firmware.bin`
+3. Erstelle `firmware.bin.version` mit neuer Version-String (z.B. "1.0.1")
+4. ESP32 prüft alle `UPDATE_INTERVAL` Sekunden auf neue Version
+5. Bei neuer Version: automatischer Download und Reboot
+
+**Variante 3: Manueller HTTP-Trigger**
+```bash
+# Firmware auf HTTP-Server bereitstellen
+python3 -m http.server 8080
+
+# ESP32 triggert Update über Serial oder API
+```
 
 ## Entwicklung
 

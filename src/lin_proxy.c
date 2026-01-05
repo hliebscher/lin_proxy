@@ -9,6 +9,8 @@
 #include "esp_rom_sys.h"
 #include "config.h"
 #include "network.h"
+#include "ota.h"
+#include "webserver.h"
 
 #define TAG "LIN_PROXY"
 
@@ -173,10 +175,17 @@ static void lin_proxy_task(void *arg)
 void app_main(void)
 {
     // Netzwerk initialisieren (WiFi oder Ethernet)
+    ESP_LOGI(TAG, "=== LIN Proxy v%s ===", ota_get_version());
     ESP_LOGI(TAG, "Starte Netzwerk...");
     network_init();
     
-    vTaskDelay(pdMS_TO_TICKS(2000)); // Warte auf Netzwerk-Verbindung
+    vTaskDelay(pdMS_TO_TICKS(3000)); // Warte auf Netzwerk-Verbindung
+    
+    // OTA-System initialisieren
+    ota_init();
+    
+    // Web-Server starten
+    webserver_init();
     
     QueueHandle_t q1 = NULL;
     QueueHandle_t q2 = NULL;
@@ -218,5 +227,13 @@ void app_main(void)
     
 #if LOG_TO_UDP
     ESP_LOGI(TAG, "UDP-Logging aktiviert -> %s:%d", SYSLOG_SERVER, SYSLOG_PORT);
+#endif
+
+#if WEB_SERVER_ENABLED
+    ESP_LOGI(TAG, "Web-Interface: http://<IP>:%d", WEB_SERVER_PORT);
+#endif
+
+#if AUTO_UPDATE
+    ESP_LOGI(TAG, "Auto-Update aktiviert (Check alle %d Sekunden)", UPDATE_INTERVAL);
 #endif
 }

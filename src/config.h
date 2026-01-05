@@ -29,4 +29,17 @@
 // LIN Frame Logging
 #define LOG_LIN_FRAMES  1    // 1=Alle LIN-Frames loggen
 
+// Firmware Version
+#define FW_VERSION      "1.0.0"
+#define FW_UPDATE_URL   "http://192.168.1.100:8080/firmware.bin"  // URL für Auto-Update
+
+// OTA Update Konfiguration
+#define OTA_ENABLED     1    // 1=OTA über HTTP aktiviert
+#define AUTO_UPDATE     1    // 1=Automatischer Versions-Check und Update
+#define UPDATE_INTERVAL 3600 // Auto-Update-Check alle 3600 Sekunden (1 Stunde)
+
+// Web-Interface
+#define WEB_SERVER_ENABLED  1   // 1=HTTP-Server für Web-Interface
+#define WEB_SERVER_PORT     80  // HTTP-Port für Web-Interface
+
 #endif // CONFIG_H
