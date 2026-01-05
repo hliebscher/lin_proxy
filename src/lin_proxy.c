@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -6,6 +7,8 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "config.h"
+#include "network.h"
 
 #define TAG "LIN_PROXY"
 
@@ -38,6 +41,9 @@ typedef struct {
     QueueHandle_t q;
     lin_state_t st;
     uint8_t last_id;
+    const char *name;         // z.B. "LIN1→LIN2"
+    uint8_t frame_buf[20];    // Buffer für komplettes Frame
+    uint8_t frame_len;        // Länge des aktuellen Frames
 } lin_link_t;
 
 static inline void delay_us(int us) { esp_rom_delay_us(us); }
@@ -55,11 +61,33 @@ static void lin_send_header(lin_link_t *lnk, uint8_t id)
     lin_send_break_gpio(lnk->out_tx_pin, 1500);
     uint8_t hdr[2] = {0x55, id};
     uart_write_bytes(lnk->out_uart, (const char*)hdr, 2);
+    
+    // Frame-Buffer initialisieren für Logging
+    lnk->frame_buf[0] = 0x55;
+    lnk->frame_buf[1] = id;
+    lnk->frame_len = 2;
 }
 
 static bool is_likely_break_event(uart_event_t *e)
 {
     return (e->type == UART_BREAK) || (e->type == UART_FRAME_ERR);
+}
+
+static void log_lin_frame(lin_link_t *lnk)
+{
+#if LOG_LIN_FRAMES
+    char log_buf[256];
+    int offset = snprintf(log_buf, sizeof(log_buf), "[%s] ID=0x%02X Data=", 
+                          lnk->name, lnk->last_id);
+    
+    for (int i = 2; i < lnk->frame_len && offset < sizeof(log_buf) - 4; i++) {
+        offset += snprintf(log_buf + offset, sizeof(log_buf) - offset, 
+                          "%02X ", lnk->frame_buf[i]);
+    }
+    
+    ESP_LOGI(TAG, "%s", log_buf);
+    network_log(log_buf);
+#endif
 }
 
 static void uart_init_lin(uart_port_t uart, int tx, int rx, QueueHandle_t *out_q)
@@ -89,7 +117,12 @@ static void lin_proxy_task(void *arg)
         if (xQueueReceive(lnk->q, &e, portMAX_DELAY) != pdTRUE) continue;
 
         if (is_likely_break_event(&e)) {
+            // Bei neuem Break: vorheriges Frame loggen falls vorhanden
+            if (lnk->st == ST_DATA && lnk->frame_len > 2) {
+                log_lin_frame(lnk);
+            }
             lnk->st = ST_GOT_BREAK;
+            lnk->frame_len = 0;
             continue;
         }
 
@@ -119,11 +152,17 @@ static void lin_proxy_task(void *arg)
 
                     case ST_GOT_ID:
                         uart_write_bytes(lnk->out_uart, (char*)&b, 1);
+                        if (lnk->frame_len < sizeof(lnk->frame_buf)) {
+                            lnk->frame_buf[lnk->frame_len++] = b;
+                        }
                         lnk->st = ST_DATA;
                         break;
 
                     case ST_DATA:
                         uart_write_bytes(lnk->out_uart, (char*)&b, 1);
+                        if (lnk->frame_len < sizeof(lnk->frame_buf)) {
+                            lnk->frame_buf[lnk->frame_len++] = b;
+                        }
                         break;
                 }
             }
@@ -133,6 +172,12 @@ static void lin_proxy_task(void *arg)
 
 void app_main(void)
 {
+    // Netzwerk initialisieren (WiFi oder Ethernet)
+    ESP_LOGI(TAG, "Starte Netzwerk...");
+    network_init();
+    
+    vTaskDelay(pdMS_TO_TICKS(2000)); // Warte auf Netzwerk-Verbindung
+    
     QueueHandle_t q1 = NULL;
     QueueHandle_t q2 = NULL;
 
@@ -143,7 +188,9 @@ void app_main(void)
         .in_uart = LIN1_UART,
         .out_uart = LIN2_UART,
         .out_tx_pin = LIN2_TX,
-        .st = ST_IDLE
+        .st = ST_IDLE,
+        .name = "LIN1→LIN2",
+        .frame_len = 0
     };
     l12.q = q1;
 
@@ -151,7 +198,9 @@ void app_main(void)
         .in_uart = LIN2_UART,
         .out_uart = LIN1_UART,
         .out_tx_pin = LIN1_TX,
-        .st = ST_IDLE
+        .st = ST_IDLE,
+        .name = "LIN2→LIN1",
+        .frame_len = 0
     };
     l21.q = q2;
 
@@ -159,4 +208,15 @@ void app_main(void)
     xTaskCreate(lin_proxy_task, "lin2_to_lin1", 4096, &l21, 12, NULL);
 
     ESP_LOGI(TAG, "LIN proxy gestartet (9600 baud)");
+    
+#if USE_ETHERNET
+    ESP_LOGI(TAG, "Netzwerk-Modus: Ethernet");
+#else
+    ESP_LOGI(TAG, "Netzwerk-Modus: WiFi (STA+AP)");
+    ESP_LOGI(TAG, "WiFi SSID: %s / AP SSID: %s", WIFI_SSID, AP_SSID);
+#endif
+    
+#if LOG_TO_UDP
+    ESP_LOGI(TAG, "UDP-Logging aktiviert -> %s:%d", SYSLOG_SERVER, SYSLOG_PORT);
+#endif
 }
