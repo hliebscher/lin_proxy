@@ -79,11 +79,18 @@ static const char* html_page =
 static esp_err_t root_handler(httpd_req_t *req)
 {
     const char *version = ota_get_version();
-    char response[4096];
-    snprintf(response, sizeof(response), html_page, version, version);
+    // Allokation auf dem Heap, um Stack des HTTP-Tasks nicht zu überlaufen
+    char *response = (char *)calloc(1, 4096);
+    if (!response) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "alloc fail");
+        return ESP_FAIL;
+    }
+
+    snprintf(response, 4096, html_page, version, version);
     
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, response, strlen(response));
+    free(response);
     return ESP_OK;
 }
 
@@ -181,6 +188,8 @@ esp_err_t webserver_init(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = WEB_SERVER_PORT;
     config.max_uri_handlers = 8;
+    // Erhöhte Stack-Größe, da Handler JSON/HTML generieren
+    config.stack_size = 6144;
     
     ESP_LOGI(TAG, "Starte HTTP-Server auf Port %d", WEB_SERVER_PORT);
     
