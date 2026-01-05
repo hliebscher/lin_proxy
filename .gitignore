@@ -1,0 +1,26 @@
+# ESP-IDF Build-Artefakte
+build/
+sdkconfig
+sdkconfig.old
+sdkconfig.defaults
+
+# Python
+*.pyc
+__pycache__/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+*.swp
+*.swo
+*~
+
+# Dependencies
+dependencies.lock
+managed_components/

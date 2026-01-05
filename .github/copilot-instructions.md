@@ -2,11 +2,13 @@
 
 ## Projektübersicht
 
-Dies ist ein **ESP-IDF LIN-Proxy-Projekt** für ESP32, das zwei LIN-Busse (LIN1 und LIN2) bidirektional verbindet und LIN-Protokoll-Frames weiterleitet.
+Dies ist ein **ESP-IDF LIN-Proxy-Projekt** für ESP32 WROOM, das zwei LIN-Busse (LIN1 und LIN2) bidirektional verbindet und LIN-Protokoll-Frames weiterleitet.
 
-**Zweck**: Transparenter Proxy für LIN-Bus-Kommunikation, nützlich für Monitoring, Debugging oder Protokoll-Translation zwischen zwei LIN-Netzwerken.
+**Zweck**: Transparenter Proxy für LIN-Bus-Kommunikation mit Netzwerk-Logging (WiFi/Ethernet), nützlich für Monitoring, Debugging oder Protokoll-Translation zwischen zwei LIN-Netzwerken.
 
-**Projekt-Name**: `womolin_proxy` (CMakeLists.txt) - minimalistisches Single-File-Projekt ohne externe Dependencies
+**Projekt-Name**: `womolin_proxy` (CMakeLists.txt)
+
+**Hardware**: ESP32 WROOM mit 16 MB Flash, KSZ8081RNA Ethernet PHY, externe WiFi-Antenne (UFL)
 
 ### LIN-Protokoll Grundlagen
 - **LIN-Frame-Struktur**: BREAK (≥13 Bitzeiten dominant low) → SYNC (0x55) → ID (mit Parität) → Daten → Checksumme
@@ -21,6 +23,7 @@ Dies ist ein **ESP-IDF LIN-Proxy-Projekt** für ESP32, das zwei LIN-Busse (LIN1 
 - **FreeRTOS-Proxy-Tasks**: Zwei symmetrische Tasks (`lin1_to_lin2`, `lin2_to_lin1`) mit Priorität 12
 - **LIN-State-Machine**: 5-Zustands-FSM (IDLE → GOT_BREAK → GOT_SYNC → GOT_ID → DATA) für LIN-Frame-Parsing
 - **GPIO-Break-Generation**: Software-gesteuerte Break-Generierung via GPIO (1500μs low) für LIN-Header
+- **Netzwerk-Logging**: WiFi (mit AP-Fallback) oder Ethernet (KSZ8081RNA PHY) für Remote-Logging
 
 ### Datenfluss
 1. UART-Events (Break/Data) über FreeRTOS-Queues empfangen
@@ -45,9 +48,15 @@ idf.py -p PORT flash monitor  # Flash + Monitor kombiniert
 ```
 
 ### Projektstruktur
-- Keine `sdkconfig` im Repo → Default ESP-IDF-Konfiguration wird beim ersten Build generiert
+- Keine `sdkconfig` im Repo (`.gitignore`) → Default ESP-IDF-Konfiguration wird beim ersten Build generiert
 - Single-File-Implementierung: gesamte Logik in [main/lin_proxy.c](main/lin_proxy.c)
-- Keine externen Komponenten oder Libraries benötigt (nur ESP-IDF-Core)
+- ESP-IDF-Komponenten: UART, GPIO, FreeRTOS, WiFi/Ethernet (menuconfig-konfigurierbar)
+
+### Netzwerk-Konfiguration
+- **WiFi-Modus**: Station mit Fallback auf Access Point (wenn keine Verbindung)
+- **Ethernet-Modus**: KSZ8081RNA PHY via ESP-IDF `esp_eth` Komponente
+- **Auswahl**: Per `idf.py menuconfig` unter "Component config"
+- **Logging**: Syslog, HTTP oder TCP-Socket für Remote-Log-Streaming
 
 ## Code-Konventionen
 
@@ -71,6 +80,19 @@ idf.py -p PORT flash monitor  # Flash + Monitor kombiniert
 - **Frame-basiert statt Blind-Streaming**: Header (Break+Sync+ID) wird erkannt, neu erzeugt und dann Daten weitergeleitet
 
 ### Hardware-Anforderungen
+
+**MCU & Netzwerk**
+- **ESP32 WROOM**: 16 MB Flash-Speicher
+- **WiFi**: Externe Antenne mit UFL-Stecker (im Lieferumfang)
+- **Ethernet PHY**: KSZ8081RNA-Chip
+  - Benötigt 25 MHz Takt über ESP32 IO16: `gpio_set_drive_capability(GPIO_NUM_16, GPIO_DRIVE_CAP_3)`
+  - PHY-Konfiguration: `eth->phy_reg_write(eth, ksz80xx->addr, 0x1f, 0x80)`
+  - **IO16/17 vom PHY belegt** → UART-Pins umgelegt auf IO12-15
+
+**LIN-Interface**
+- **Pin-Belegung** (angepasst wegen Ethernet PHY):
+  - LIN1: RXD=GPIO14, TXD=GPIO15
+  - LIN2: RXD=GPIO13, TXD=GPIO12
 - **LIN-Transceiver**: TJA1021 oder ähnlich für 12V LIN-Bus ↔ 3.3V ESP32-Logik
 - **WICHTIG**: TJA1021-Variante muss 3.3V-kompatibel sein (VIO/Logikversorgung prüfen!)
   - Manche Varianten sind nur 5V → Level-Shifter erforderlich oder ESP32-Pins gefährdet
@@ -101,8 +123,27 @@ idf.py -p PORT flash monitor  # Flash + Monitor kombiniert
 - ❌ **UART-Parität aktiviert**: LIN nutzt 8N1; Parität ist in ID-Byte, nicht UART-Parität
 - ❌ **Blindes Byte-Streaming**: Ohne Break-Regenerierung können Slaves Header nicht erkennen
 
-## Mögliche Erweiterungen
+## Geplante Features & Erweiterungen
+- ✅ **Netzwerk-Logging**: WiFi/Ethernet Remote-Logging implementieren
+- **WiFi AP-Fallback**: Automatischer Switch zu Access Point wenn Station-Connect fehlschlägt
 - **Filtering**: Bestimmte IDs blocken oder modifizieren in State-Machine
 - **Checksumme-Neuberechnung**: Bei Payload-Änderungen classic/enhanced Checksum anpassen
-- **Logging/Sniffing**: Frames auf SD-Karte oder UART3 ausgeben für Analyse
+- **Web-Interface**: HTTP-Server für Live-Monitoring und Konfiguration
 - **Rate-Limiting**: Flood-Protection bei fehlerhaften Slaves
+
+## Wichtige Implementierungshinweise
+
+### Ethernet PHY (KSZ8081RNA)
+```c
+// 25 MHz Clock auf IO16 generieren
+gpio_set_drive_capability(GPIO_NUM_16, GPIO_DRIVE_CAP_3);
+// PHY-spezifische Konfiguration
+eth->phy_reg_write(eth, ksz80xx->addr, 0x1f, 0x80);
+```
+
+### WiFi mit AP-Fallback
+```c
+// 1. Versuche Station-Modus (STA)
+// 2. Bei Fehler: Starte Access Point (AP)
+// 3. Logging über beide Modi möglich
+```
