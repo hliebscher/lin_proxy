@@ -58,7 +58,13 @@ idf.py -p PORT flash monitor  # Flash + Monitor kombiniert
 
 ### FreeRTOS-Patterns
 - **Task-Prioritäten**: Proxy-Tasks nutzen Priorität 12
-- **Stack-Größe**: 4096 Bytes für UART-Handler-Tasks @ 9600 = 1.35ms, robust)
+- **Stack-Größe**: 4096 Bytes für UART-Handler-Tasks
+- **Queues**: 20 Events pro UART-Queue, Blocking mit `portMAX_DELAY`
+
+### LIN-Protokoll-Spezifika
+- **Break-Detection**: `UART_BREAK` oder `UART_FRAME_ERR` Events als Break behandeln
+- **Sync-Byte**: Immer `0x55` nach Break erwarten
+- **Break-Generation**: GPIO-low für 1500μs (länger als Standard 13-Bit @ 9600 = 1.35ms, robust)
   - **Warum GPIO**: ESP32 UART kann keinen Break senden → TX-Pin kurz als GPIO-Output low schalten
   - Implementierung: `gpio_set_direction()` → `gpio_set_level(0)` → `delay_us()` → `gpio_set_direction(INPUT_OUTPUT)`
 - **Timeout**: `uart_set_rx_timeout(uart, 2)` für Frame-Erkennung
@@ -69,18 +75,22 @@ idf.py -p PORT flash monitor  # Flash + Monitor kombiniert
 - **WICHTIG**: TJA1021-Variante muss 3.3V-kompatibel sein (VIO/Logikversorgung prüfen!)
   - Manche Varianten sind nur 5V → Level-Shifter erforderlich oder ESP32-Pins gefährdet
 - **Bus-Topologie**: Beide LIN-Segmente brauchen separate LIN-Beschaltung (Pullup/Termination gemäß LIN-Spec)
-- **Isolierung**: Proxy trennt physikalisch zwei LIN-Busse → verhindert Master-KollisionenAY`
-
-### LIN-Protokoll-Spezifika
-- **Break-Detection**: `UART_BREAK` oder `UART_FRAME_ERR` Events als Break behandeln
-- **Sync-Byte**: Immer `0x55` nach Break erwarten
-- **Break-Generation**: GPIO-low für 1500μs (länger als Standard 13-Bit, robust für 9600 Baud)
-- **Timeout**: `uart_set_rx_timeout(uart, 2)` für Frame-Erkennung
+- **Isolierung**: Proxy trennt physikalisch zwei LIN-Busse → verhindert Master-Kollisionen
 
 ### Logging
 - `ESP_LOGI(TAG, ...)` für Info-Logs nutzen
 - TAG immer als `#define TAG "LIN_PROXY"` definieren
 
+## Wichtige Dateien
+- [main/lin_proxy.c](main/lin_proxy.c): Gesamte Proxy-Logik, State-Machine, UART-Setup
+- [main/CMakeLists.txt](main/CMakeLists.txt): Komponenten-Registrierung für ESP-IDF
+- [CMakeLists.txt](CMakeLists.txt): Top-Level ESP-IDF-Projekt (nutzt `$ENV{IDF_PATH}`)
+
+## Debugging-Tipps
+- **Monitor-Ausgabe**: `idf.py monitor` zeigt ESP_LOG-Ausgaben und Panics
+- **UART-Events debuggen**: Temporär Event-Types loggen vor State-Machine
+- **Break-Timing**: Bei Problemen mit Break-Detection `us_low` in `lin_send_break_gpio()` anpassen
+- **Pin-Konflikte**: Prüfe mit `gpio_dump_io_configuration()` bei unerwarteten Pin-States
 - **Latenz-Probleme**: Wenn Slaves zu spät antworten, prüfe Task-Prioritäten und Queue-Delays
 
 ## Häufige Fallstricke
@@ -96,13 +106,3 @@ idf.py -p PORT flash monitor  # Flash + Monitor kombiniert
 - **Checksumme-Neuberechnung**: Bei Payload-Änderungen classic/enhanced Checksum anpassen
 - **Logging/Sniffing**: Frames auf SD-Karte oder UART3 ausgeben für Analyse
 - **Rate-Limiting**: Flood-Protection bei fehlerhaften Slaves
-## Wichtige Dateien
-- [main/lin_proxy.c](main/lin_proxy.c): Gesamte Proxy-Logik, State-Machine, UART-Setup
-- [main/CMakeLists.txt](main/CMakeLists.txt): Komponenten-Registrierung für ESP-IDF
-- [CMakeLists.txt](CMakeLists.txt): Top-Level ESP-IDF-Projekt (nutzt `$ENV{IDF_PATH}`)
-
-## Debugging-Tipps
-- **Monitor-Ausgabe**: `idf.py monitor` zeigt ESP_LOG-Ausgaben und Panics
-- **UART-Events debuggen**: Temporär Event-Types loggen vor State-Machine
-- **Break-Timing**: Bei Problemen mit Break-Detection `us_low` in `lin_send_break_gpio()` anpassen
-- **Pin-Konflikte**: Prüfe mit `gpio_dump_io_configuration()` bei unerwarteten Pin-States
