@@ -70,7 +70,7 @@ static void uart_init_lin(uart_port_t uart, int tx, int rx, QueueHandle_t *out_q
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk= UART_SCLK_DEFAULT
+        .source_clk= UART_SCLK_APB
     };
 
     uart_driver_install(uart, UART_BUF, UART_BUF, 20, out_q, 0);
@@ -143,17 +143,17 @@ void app_main(void)
         .in_uart = LIN1_UART,
         .out_uart = LIN2_UART,
         .out_tx_pin = LIN2_TX,
-        .q = q1,
         .st = ST_IDLE
     };
+    l12.q = q1;
 
     static lin_link_t l21 = {
         .in_uart = LIN2_UART,
         .out_uart = LIN1_UART,
         .out_tx_pin = LIN1_TX,
-        .q = q2,
         .st = ST_IDLE
     };
+    l21.q = q2;
 
     xTaskCreate(lin_proxy_task, "lin1_to_lin2", 4096, &l12, 12, NULL);
     xTaskCreate(lin_proxy_task, "lin2_to_lin1", 4096, &l21, 12, NULL);
