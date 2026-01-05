@@ -58,7 +58,7 @@ static esp_err_t check_new_version(const char *url, bool *update_available)
         esp_http_client_cleanup(client);
         return err;
     }
-    
+    // Lese Versions-Info
     char server_version[32] = {0};
     int content_length = esp_http_client_fetch_headers(client);
     

@@ -14,6 +14,9 @@ static int udp_sock = -1;
 static struct sockaddr_in syslog_addr;
 static bool wifi_connected = false;
 static bool eth_connected = false;
+static bool ap_mode_active = false;
+static int wifi_retry_count = 0;
+#define WIFI_MAX_RETRY 5  // Max. Versuche für Station-Verbindung
 
 #if USE_ETHERNET
 #include "driver/gpio.h"
@@ -73,26 +76,66 @@ static esp_err_t init_ethernet(void)
 
 #else // WiFi-Modus
 
+// Forward-Declaration
+static esp_err_t init_wifi_ap(void);
+
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                 int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        ESP_LOGI(TAG, "WiFi Station startet, versuche Verbindung zu '%s'...", WIFI_SSID);
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        ESP_LOGI(TAG, "WiFi Station getrennt, versuche Reconnect...");
         wifi_connected = false;
-        esp_wifi_connect();
+        
+        if (!ap_mode_active && wifi_retry_count < WIFI_MAX_RETRY) {
+            wifi_retry_count++;
+            ESP_LOGI(TAG, "WiFi Verbindung fehlgeschlagen, Versuch %d/%d", wifi_retry_count, WIFI_MAX_RETRY);
+            esp_wifi_connect();
+        } else if (!ap_mode_active && wifi_retry_count >= WIFI_MAX_RETRY) {
+            ESP_LOGW(TAG, "WiFi Station-Modus fehlgeschlagen nach %d Versuchen", WIFI_MAX_RETRY);
+            ESP_LOGI(TAG, "Wechsle zu Access Point-Modus mit fester IP");
+            
+            // Wechsle zu AP-only Modus
+            esp_wifi_set_mode(WIFI_MODE_AP);
+            init_wifi_ap();
+            ap_mode_active = true;
+        } else if (wifi_connected) {
+            // Reconnect-Versuch wenn Station bereits mal verbunden war
+            ESP_LOGI(TAG, "WiFi Station getrennt, versuche Reconnect...");
+            esp_wifi_connect();
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "WiFi Station IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "WiFi Station verbunden! IP (DHCP): " IPSTR, IP2STR(&event->ip_info.ip));
         wifi_connected = true;
+        wifi_retry_count = 0;  // Reset bei erfolgreicher Verbindung
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
-        ESP_LOGI(TAG, "Client verbunden mit Access Point");
+        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
+        ESP_LOGI(TAG, "Client " MACSTR " verbunden mit Access Point", MAC2STR(event->mac));
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
+        ESP_LOGI(TAG, "Access Point gestartet mit fester IP");
     }
 }
 
 static esp_err_t init_wifi_ap(void)
 {
+    // Konfiguriere feste IP für AP-Modus
+    esp_netif_t *ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (ap_netif) {
+        esp_netif_dhcps_stop(ap_netif);  // DHCP-Server stoppen für IP-Änderung
+        
+        esp_netif_ip_info_t ip_info;
+        IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);       // AP IP: 192.168.4.1
+        IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);       // Gateway
+        IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0); // Netzmaske
+        
+        esp_netif_set_ip_info(ap_netif, &ip_info);
+        esp_netif_dhcps_start(ap_netif);  // DHCP-Server neu starten
+        
+        ESP_LOGI(TAG, "AP feste IP konfiguriert: " IPSTR, IP2STR(&ip_info.ip));
+    }
+    
     wifi_config_t ap_config = {
         .ap = {
             .ssid = AP_SSID,
@@ -109,13 +152,14 @@ static esp_err_t init_wifi_ap(void)
     }
     
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
-    ESP_LOGI(TAG, "WiFi Access Point gestartet: SSID=%s", AP_SSID);
+    ESP_LOGI(TAG, "WiFi Access Point konfiguriert: SSID='%s', IP=192.168.4.1", AP_SSID);
     
     return ESP_OK;
 }
 
 static esp_err_t init_wifi(void)
 {
+    // Erstelle Interfaces für beide Modi (werden nicht gleichzeitig aktiv)
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
     
@@ -125,7 +169,7 @@ static esp_err_t init_wifi(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
     
-    // Versuche zuerst Station-Modus
+    // Konfiguriere Station-Modus mit DHCP (Priorität 1)
     wifi_config_t sta_config = {
         .sta = {
             .ssid = WIFI_SSID,
@@ -133,14 +177,17 @@ static esp_err_t init_wifi(void)
         },
     };
     
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    // Starte NUR im Station-Modus (DHCP), AP-Fallback erfolgt bei Fehler
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
     
-    // Starte Access Point als Fallback
+    // Konfiguriere AP schon vor (wird aktiviert bei STA-Fehler)
     init_wifi_ap();
     
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_LOGI(TAG, "WiFi gestartet: STA versucht Verbindung zu '%s', AP='%s'", WIFI_SSID, AP_SSID);
+    ESP_LOGI(TAG, "WiFi gestartet im Station-Modus (DHCP)");
+    ESP_LOGI(TAG, "Versuche Verbindung zu '%s'...", WIFI_SSID);
+    ESP_LOGI(TAG, "Fallback zu AP-Modus '%s' (feste IP) nach %d Fehlversuchen", AP_SSID, WIFI_MAX_RETRY);
     
     return ESP_OK;
 }

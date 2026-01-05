@@ -84,7 +84,6 @@ vim src/config_local.h
 
 **Inhalt von `config_local.h`:**
 
-**Inhalt von `config_local.h`:**
 
 ```c
 // Netzwerk-Modus
