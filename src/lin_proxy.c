@@ -15,6 +15,9 @@
 #define TAG "LIN_PROXY"
 
 #define LIN_BAUD 9600
+#ifndef DEBUG_UART_EVENTS
+#define DEBUG_UART_EVENTS 0  // Set to 1 for verbose UART event logs
+#endif
 
 // LIN1
 #define LIN1_UART UART_NUM_1
@@ -117,6 +120,20 @@ static void lin_proxy_task(void *arg)
 
     while (1) {
         if (xQueueReceive(lnk->q, &e, portMAX_DELAY) != pdTRUE) continue;
+
+#if DEBUG_UART_EVENTS
+        ESP_LOGI(TAG, "[%s] UART event type=%d size=%d", lnk->name, e.type, e.size);
+#endif
+
+        // Handle overflow/queue full to avoid stuck RX
+        if (e.type == UART_FIFO_OVF || e.type == UART_BUFFER_FULL) {
+            ESP_LOGW(TAG, "[%s] UART overflow/buffer full -> flush", lnk->name);
+            uart_flush_input(lnk->in_uart);
+            xQueueReset(lnk->q);
+            lnk->st = ST_IDLE;
+            lnk->frame_len = 0;
+            continue;
+        }
 
         if (is_likely_break_event(&e)) {
             // Bei neuem Break: vorheriges Frame loggen falls vorhanden
