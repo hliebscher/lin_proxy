@@ -106,10 +106,26 @@ static void uart_init_lin(uart_port_t uart, int tx, int rx, QueueHandle_t *out_q
         .source_clk= UART_SCLK_APB
     };
 
-    uart_driver_install(uart, UART_BUF, UART_BUF, 20, out_q, 0);
+    // Erst Konfiguration setzen, dann Treiber installieren (stabiler laut ESP-IDF Praxis)
     uart_param_config(uart, &cfg);
-    uart_set_pin(uart, tx, rx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(uart, UART_BUF, UART_BUF, 20, out_q, 0);
     uart_set_rx_timeout(uart, 2);
+}
+
+static void uart_apply_pins_delayed(void *arg)
+{
+    // Warte bewusst bis System vollständig gebootet hat (Strapping stabil)
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
+    // LIN1 Pins setzen
+    uart_set_pin(LIN1_UART, LIN1_TX, LIN1_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    // LIN2 Pins setzen
+    uart_set_pin(LIN2_UART, LIN2_TX, LIN2_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    ESP_LOGI(TAG, "UART-Pins wurden nach Delay konfiguriert (LIN1 TX=%d RX=%d, LIN2 TX=%d RX=%d)",
+             (int)LIN1_TX, (int)LIN1_RX, (int)LIN2_TX, (int)LIN2_RX);
+
+    vTaskDelete(NULL);
 }
 
 static void lin_proxy_task(void *arg)
@@ -234,6 +250,9 @@ void app_main(void)
     xTaskCreate(lin_proxy_task, "lin2_to_lin1", 4096, &l21, 12, NULL);
 
     ESP_LOGI(TAG, "LIN proxy gestartet (9600 baud)");
+
+    // UART-Pins erst nach Boot stabilisieren/configurieren
+    xTaskCreate(uart_apply_pins_delayed, "uart_pins_late", 2048, NULL, 10, NULL);
     
 #if USE_ETHERNET
     ESP_LOGI(TAG, "Netzwerk-Modus: Ethernet");
