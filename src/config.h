@@ -48,6 +48,10 @@
 // LIN Frame Logging
 #define LOG_LIN_FRAMES  1    // 1=Alle LIN-Frames loggen
 
+// LIN Sniffer Modus (nur für Testing/Debugging)
+#define LIN_SNIFFER_MODE 0   // 1=Aktiviert Sniffer auf LIN1 (deaktiviert Proxy!)
+#define SNIFFER_DETAIL_LOGS 1 // 1=Detaillierte Frame-Analyse mit Timing
+
 // Firmware Version
 #define FW_VERSION      "1.0.0"
 
