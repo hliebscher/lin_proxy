@@ -4,6 +4,7 @@
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
+#include "esp_crt_bundle.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -19,13 +20,18 @@ esp_err_t ota_update_from_url(const char *url)
 {
     ESP_LOGI(TAG, "Starte OTA-Update von: %s", url);
     
-    esp_http_client_config_t config = {
+    esp_http_client_config_t http_cfg = {
         .url = url,
         .timeout_ms = 30000,
         .keep_alive_enable = true,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
-    
-    esp_err_t ret = esp_https_ota(&config);
+
+    esp_https_ota_config_t ota_cfg = {
+        .http_config = &http_cfg,
+    };
+
+    esp_err_t ret = esp_https_ota(&ota_cfg);
     
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "OTA-Update erfolgreich! Reboot...");
@@ -59,6 +65,7 @@ static esp_err_t check_new_version(const char *url, bool *update_available)
     esp_http_client_config_t config = {
         .url = version_url,
         .timeout_ms = 5000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);

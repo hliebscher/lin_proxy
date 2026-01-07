@@ -12,11 +12,10 @@
 // 3. config_local.h wird NICHT ins Git committet (siehe .gitignore)
 
 // Inkludiere lokale Einstellungen (WiFi, Syslog, etc.)
-#ifdef __has_include
-#  if __has_include("config_local.h")
-#    include "config_local.h"
-#    define HAS_LOCAL_CONFIG 1
-#  endif
+// Korrekte Nutzung von __has_include: direkt als Ausdruck in #if verwenden
+#if __has_include("config_local.h")
+#  include "config_local.h"
+#  define HAS_LOCAL_CONFIG 1
 #endif
 
 // Fallback-Werte wenn config_local.h fehlt

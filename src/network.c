@@ -1,6 +1,7 @@
 #include "network.h"
 #include "config.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
 #include "esp_eth.h"
 #include "esp_netif.h"
 #include "esp_event.h"
