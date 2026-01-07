@@ -16,7 +16,7 @@
 
 #define LIN_BAUD 9600
 #ifndef DEBUG_UART_EVENTS
-#define DEBUG_UART_EVENTS 0  // Set to 1 for verbose UART event logs
+#define DEBUG_UART_EVENTS 1  // Set to 1 for verbose UART event logs
 #endif
 
 // LIN1
@@ -117,15 +117,28 @@ static void uart_apply_pins_delayed(void *arg)
     // Warte bewusst bis System vollständig gebootet hat (Strapping stabil)
     vTaskDelay(pdMS_TO_TICKS(3000));
 
+    ESP_LOGI(TAG, "Starte UART-Pin-Konfiguration...");
+    
     // LIN1 Pins setzen
-    uart_set_pin(LIN1_UART, LIN1_TX, LIN1_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    ESP_LOGI(TAG, "Setze LIN1 Pins: TX=%d RX=%d", (int)LIN1_TX, (int)LIN1_RX);
+    esp_err_t ret1 = uart_set_pin(LIN1_UART, LIN1_TX, LIN1_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    ESP_LOGI(TAG, "LIN1 uart_set_pin: %s", ret1 == ESP_OK ? "OK" : esp_err_to_name(ret1));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
     // LIN2 Pins setzen
-    uart_set_pin(LIN2_UART, LIN2_TX, LIN2_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    ESP_LOGI(TAG, "Setze LIN2 Pins: TX=%d RX=%d", (int)LIN2_TX, (int)LIN2_RX);
+    esp_err_t ret2 = uart_set_pin(LIN2_UART, LIN2_TX, LIN2_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    ESP_LOGI(TAG, "LIN2 uart_set_pin: %s", ret2 == ESP_OK ? "OK" : esp_err_to_name(ret2));
+    vTaskDelay(pdMS_TO_TICKS(100));
 
-    ESP_LOGI(TAG, "UART-Pins wurden nach Delay konfiguriert (LIN1 TX=%d RX=%d, LIN2 TX=%d RX=%d)",
-             (int)LIN1_TX, (int)LIN1_RX, (int)LIN2_TX, (int)LIN2_RX);
-
-    vTaskDelete(NULL);
+    ESP_LOGI(TAG, "UART-Pins konfiguriert! Warte auf LIN-Events...");
+    
+    // Periodisches Lebenszeichen
+    int alive_count = 0;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        ESP_LOGI(TAG, "System läuft... (%d)", ++alive_count);
+    }
 }
 
 static void lin_proxy_task(void *arg)
@@ -254,22 +267,36 @@ void app_main(void)
     // UART-Pins erst nach Boot stabilisieren/configurieren
     xTaskCreate(uart_apply_pins_delayed, "uart_pins_late", 2048, NULL, 10, NULL);
     
+    // Hole aktuelle IP-Adresse
+    const char *ip = network_get_ip_string();
+    
 #if USE_ETHERNET
     ESP_LOGI(TAG, "Netzwerk-Modus: Ethernet");
+    ESP_LOGI(TAG, "IP-Adresse: %s", ip);
 #else
     ESP_LOGI(TAG, "Netzwerk-Modus: WiFi (STA+AP)");
     ESP_LOGI(TAG, "WiFi SSID: %s / AP SSID: %s", WIFI_SSID, AP_SSID);
+    ESP_LOGI(TAG, "IP-Adresse: %s", ip);
 #endif
     
 #if LOG_TO_UDP
     ESP_LOGI(TAG, "UDP-Logging aktiviert -> %s:%d", SYSLOG_SERVER, SYSLOG_PORT);
+    
+    // Sende Test-Nachricht an Syslog-Server
+    char startup_msg[256];
+    snprintf(startup_msg, sizeof(startup_msg), 
+             "[%s] === LIN Proxy v%s gestartet === IP: %s",
+             TAG, ota_get_version(), ip);
+    network_log(startup_msg);
+    ESP_LOGI(TAG, "Syslog Test-Nachricht gesendet");
 #endif
 
 #if WEB_SERVER_ENABLED
-    ESP_LOGI(TAG, "Web-Interface: http://<IP>:%d", WEB_SERVER_PORT);
+    ESP_LOGI(TAG, "Web-Interface: http://%s:%d", ip, WEB_SERVER_PORT);
 #endif
 
 #if AUTO_UPDATE
     ESP_LOGI(TAG, "Auto-Update aktiviert (Check alle %d Sekunden)", UPDATE_INTERVAL);
+    ESP_LOGI(TAG, "OTA-Server: %s", FW_UPDATE_URL);
 #endif
 }

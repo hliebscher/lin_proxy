@@ -32,7 +32,16 @@ esp_err_t ota_update_from_url(const char *url)
         vTaskDelay(pdMS_TO_TICKS(1000));
         esp_restart();
     } else {
-        ESP_LOGE(TAG, "OTA-Update fehlgeschlagen: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "OTA-Update fehlgeschlagen: %s (0x%x)", esp_err_to_name(ret), ret);
+        ESP_LOGE(TAG, "URL: %s", url);
+        
+        if (ret == ESP_ERR_HTTP_CONNECT) {
+            ESP_LOGE(TAG, "Kann Server nicht erreichen - prüfe Netzwerk und URL");
+        } else if (ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGE(TAG, "Timeout beim Download - Server zu langsam oder nicht erreichbar");
+        } else if (ret == ESP_ERR_HTTP_FETCH_HEADER) {
+            ESP_LOGE(TAG, "HTTP-Header-Fehler - Server antwortet nicht korrekt");
+        }
     }
     
     return ret;
@@ -45,16 +54,29 @@ static esp_err_t check_new_version(const char *url, bool *update_available)
     char version_url[256];
     snprintf(version_url, sizeof(version_url), "%s.version", url);
     
+    ESP_LOGI(TAG, "Prüfe Version auf: %s", version_url);
+    
     esp_http_client_config_t config = {
         .url = version_url,
         .timeout_ms = 5000,
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "HTTP-Client init fehlgeschlagen");
+        return ESP_FAIL;
+    }
+    
     esp_err_t err = esp_http_client_open(client, 0);
     
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Versions-Check fehlgeschlagen");
+        ESP_LOGE(TAG, "Versions-Check fehlgeschlagen: %s (0x%x)", esp_err_to_name(err), err);
+        ESP_LOGE(TAG, "URL: %s", version_url);
+        
+        if (err == ESP_ERR_HTTP_CONNECT) {
+            ESP_LOGE(TAG, "Kann OTA-Server nicht erreichen - prüfe FW_UPDATE_URL in config_local.h");
+        }
+        
         esp_http_client_cleanup(client);
         return err;
     }

@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
 #include <string.h>
+#include <errno.h>
 
 static const char *TAG = "NETWORK";
 static int udp_sock = -1;
@@ -208,11 +209,49 @@ esp_err_t network_init(void)
 #endif
 }
 
+char* network_get_ip_string(void)
+{
+    static char ip_str[16] = "unknown";
+    
+#if USE_ETHERNET
+    if (eth_connected) {
+        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("ETH_DEF");
+        if (netif) {
+            esp_netif_ip_info_t ip_info;
+            if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+            }
+        }
+    }
+#else
+    if (wifi_connected) {
+        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (netif) {
+            esp_netif_ip_info_t ip_info;
+            if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+            }
+        }
+    } else if (ap_mode_active) {
+        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+        if (netif) {
+            esp_netif_ip_info_t ip_info;
+            if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+            }
+        }
+    }
+#endif
+    
+    return ip_str;
+}
+
 void network_log(const char *msg)
 {
 #if LOG_TO_UDP
     // Prüfe ob Netzwerk verbunden
     if (!wifi_connected && !eth_connected) {
+        ESP_LOGD(TAG, "UDP-Log übersprungen: Netzwerk nicht verbunden");
         return;
     }
     
@@ -220,18 +259,37 @@ void network_log(const char *msg)
     if (udp_sock < 0) {
         udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (udp_sock < 0) {
-            ESP_LOGE(TAG, "Socket-Fehler");
+            ESP_LOGE(TAG, "UDP-Socket erstellen fehlgeschlagen: errno=%d", errno);
             return;
         }
         
         memset(&syslog_addr, 0, sizeof(syslog_addr));
         syslog_addr.sin_family = AF_INET;
         syslog_addr.sin_port = htons(SYSLOG_PORT);
-        inet_pton(AF_INET, SYSLOG_SERVER, &syslog_addr.sin_addr);
+        
+        int ret = inet_pton(AF_INET, SYSLOG_SERVER, &syslog_addr.sin_addr);
+        if (ret != 1) {
+            ESP_LOGE(TAG, "Syslog-Server IP ungültig: %s", SYSLOG_SERVER);
+            close(udp_sock);
+            udp_sock = -1;
+            return;
+        }
+        
+        ESP_LOGI(TAG, "UDP-Socket initialisiert -> %s:%d", SYSLOG_SERVER, SYSLOG_PORT);
     }
     
     // Sende Syslog-Nachricht
-    sendto(udp_sock, msg, strlen(msg), 0, 
-           (struct sockaddr *)&syslog_addr, sizeof(syslog_addr));
+    int sent = sendto(udp_sock, msg, strlen(msg), 0, 
+                      (struct sockaddr *)&syslog_addr, sizeof(syslog_addr));
+    
+    if (sent < 0) {
+        ESP_LOGE(TAG, "UDP sendto fehlgeschlagen: errno=%d (%s)", errno, strerror(errno));
+        ESP_LOGE(TAG, "Ziel: %s:%d", SYSLOG_SERVER, SYSLOG_PORT);
+        // Socket neu initialisieren beim nächsten Aufruf
+        close(udp_sock);
+        udp_sock = -1;
+    } else {
+        ESP_LOGD(TAG, "UDP gesendet: %d Bytes an %s:%d", sent, SYSLOG_SERVER, SYSLOG_PORT);
+    }
 #endif
 }
